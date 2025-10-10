@@ -1,0 +1,82 @@
+{
+  "name": "Music Files Inbox - Auto Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-music-inbox",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Drive Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "drive-music-inbox"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-goog-resource-state']}}",
+              "operation": "equals",
+              "value2": "change"
+            }
+          ]
+        }
+      },
+      "id": "filter-changes",
+      "name": "Filter Only File Changes",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const filename = $input.item.json.name;\\nconst match = filename.match(/^(.+?)\\\\s*-\\\\s*(.+?)\\\\s*-\\\\s*(\\\\d+[A-B])\\\\s*-\\\\s*([\\\\d.]+)\\\\./);\\n\\nif (match) {\\n  return {\\n    json: {\\n      fileId: $input.item.json.id,\\n      fileName: filename,\\n      artist: match[1].trim(),\\n      trackName: match[2].trim(),\\n      key: match[3],\\n      bpm: parseFloat(match[4]),\\n      driveLink: $input.item.json.webViewLink,\\n      parsed: true\\n    }\\n  };\\n} else {\\n  return {\\n    json: {\\n      fileName: filename,\\n      artist: 'Unknown',\\n      trackName: filename,\\n      parsed: false\\n    }\\n  };\\n}"
+      },
+      "id": "parse-filename",
+      "name": "Parse Filename Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Drive Notification": {
+      "main": [
+        [
+          {
+            "node": "Filter Only File Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Only File Changes": {
+      "main": [
+        [
+          {
+            "node": "Parse Filename Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "staticData": null
+}
