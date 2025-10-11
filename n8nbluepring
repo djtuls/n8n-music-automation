@@ -1,0 +1,190 @@
+{
+  "name": "Webhook → Notion → Slack (Lead Inbox, Secured)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-inbox",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "Webhook_Lead_Inbox",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$headers[\"x-webhook-secret\"]}}",
+              "operation": "equals",
+              "value2": "={{$env.LEAD_WEBHOOK_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "IF_Auth",
+      "name": "IF: Auth OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ { \"error\": \"unauthorized\" } }}",
+        "responseCode": 401
+      },
+      "id": "Respond_401",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 360]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            { "name": "name", "value": "={{ ($json[\"name\"] || \"\").trim() }}" },
+            { "name": "email", "value": "={{ ($json[\"email\"] || \"\").trim() }}" },
+            { "name": "message", "value": "={{ ($json[\"message\"] || \"\").trim() }}" }
+          ],
+          "dateTime": [
+            { "name": "received_at", "value": "={{$now}}" }
+          ]
+        }
+      },
+      "id": "Set_Normalize",
+      "name": "Set Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json[\"name\"]}}", "operation": "notEqual", "value2": "" },
+            { "value1": "={{$json[\"email\"]}}", "operation": "notEqual", "value2": "" }
+          ]
+        }
+      },
+      "id": "IF_Valid",
+      "name": "IF: Valid Payload?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [920, 200]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ { \"error\": \"bad_request\", \"details\": { \"missing\": [ !$json[\"name\"] ? \"name\" : null, !$json[\"email\"] ? \"email\" : null ].filter(Boolean) } } }}",
+        "responseCode": 400
+      },
+      "id": "Respond_400",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [920, 360]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "YOUR_NOTION_DATABASE_ID",
+        "propertiesUi": {
+          "propertyValues": [
+            { "key": "Name", "displayName": "Name", "type": "title", "value": "={{$json[\"name\"]}}" },
+            { "key": "Email", "displayName": "Email", "type": "email", "value": "={{$json[\"email\"]}}" },
+            { "key": "Message", "displayName": "Message", "type": "rich_text", "value": "={{$json[\"message\"]}}" },
+            { "key": "Received", "displayName": "Received", "type": "date", "value": "={{$json[\"received_at\"]}}" }
+          ]
+        }
+      },
+      "id": "Notion_Create",
+      "name": "Notion - Create Item",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [1160, 200],
+      "credentials": {
+        "notionApi": {
+          "id": "YOUR_NOTION_CREDENTIAL_ID",
+          "name": "Notion Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#leads",
+        "text": "New lead: *{{$json[\"name\"]}}* ({{$json[\"email\"]}})\n> {{$json[\"message\"]}}"
+      },
+      "id": "Slack_Post",
+      "name": "Slack - Notify",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [1400, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ { \"status\": \"received\", \"name\": $json[\"name\"], \"email\": $json[\"email\"] } }}",
+        "responseCode": 200
+      },
+      "id": "Respond_200",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1640, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "IF: Auth OK?", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF: Auth OK?": {
+      "main": [
+        [{ "node": "Set Fields", "type": "main", "index": 0 }],
+        [{ "node": "Respond 401", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set Fields": {
+      "main": [
+        [{ "node": "IF: Valid Payload?", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF: Valid Payload?": {
+      "main": [
+        [{ "node": "Notion - Create Item", "type": "main", "index": 0 }],
+        [{ "node": "Respond 400", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notion - Create Item": {
+      "main": [
+        [{ "node": "Slack - Notify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Slack - Notify": {
+      "main": [
+        [{ "node": "Respond 200", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "version": 2
+}
