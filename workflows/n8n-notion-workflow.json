@@ -1,0 +1,198 @@
+{
+  "name": "Music Files Inbox - Auto Processing with Notion",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-music-inbox",
+        "responseMode": "responseNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "WebTrigger",
+      "name": "Webhook - Drive Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "webhookId": "drive-music-inbox"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-goog-resource-state']}}",
+              "operation": "equals",
+              "value2": "change"
+            }
+          ]
+        }
+      },
+      "id": "FilterChanges",
+      "name": "Filter Only File Changes",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const filename = $json.name || '';\nconst match = filename.match(/^(.*?)\\s*-\\s*(.*?)\\s*-\\s*(\\d+[AB])\\s*-\\s*([\\d.]+)\\./);\n\nif (!match) {\n  return {\n    json: {\n      fileId: $json.id,\n      fileName: filename,\n      artist: 'Unknown',\n      trackName: filename.replace(/\\.[^/.]+$/, ''),\n      parsed: false\n    }\n  };\n}\n\nreturn {\n  json: {\n    fileId: $json.id,\n    fileName: filename,\n    artist: match[1].trim(),\n    trackName: match[2].trim(),\n    key: match[3],\n    bpm: parseFloat(match[4]),\n    driveLink: $json.webViewLink,\n    parsed: true\n  }\n};"
+      },
+      "id": "ParseMetadata",
+      "name": "Parse Filename Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{$json.fileId}}",
+        "options": {
+          "fields": "id,name,parents,webViewLink,webContentLink,createdTime,modifiedTime"
+        }
+      },
+      "id": "DriveDetails",
+      "name": "Get File Details from Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [860, 300],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "REPLACE_WITH_NOTION_DATABASE_ID",
+        "options": {
+          "iconType": "emoji",
+          "icon": "🎵"
+        },
+        "simpleProperties": {
+          "properties": [
+            {
+              "key": "Track Name",
+              "type": "title",
+              "title": {
+                "text": "={{$('Parse Filename Metadata').item.json.trackName || 'Unknown Track'}}"
+              }
+            },
+            {
+              "key": "Artist",
+              "type": "richText",
+              "richText": {
+                "text": "={{$('Parse Filename Metadata').item.json.artist || 'Unknown Artist'}}"
+              }
+            },
+            {
+              "key": "BPM",
+              "type": "number",
+              "number": "={{$('Parse Filename Metadata').item.json.bpm || 0}}"
+            },
+            {
+              "key": "Key",
+              "type": "richText",
+              "richText": {
+                "text": "={{$('Parse Filename Metadata').item.json.key || ''}}"
+              }
+            },
+            {
+              "key": "MP3 File",
+              "type": "url",
+              "url": "={{$('Parse Filename Metadata').item.json.driveLink}}"
+            },
+            {
+              "key": "Google Folder Name",
+              "type": "richText",
+              "richText": {
+                "text": "={{$json.parents && $json.parents.length ? $json.parents[0] : 'Unknown'}}"
+              }
+            },
+            {
+              "key": "Status",
+              "type": "status",
+              "status": {
+                "name": "Inbox"
+              }
+            },
+            {
+              "key": "Notes",
+              "type": "richText",
+              "richText": {
+                "text": "Automatically processed via n8n workflow"
+              }
+            }
+          ]
+        }
+      },
+      "id": "CreateNotionEntry",
+      "name": "Create Notion Database Entry",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [1080, 300],
+      "credentials": {
+        "notionApi": {
+          "id": "REPLACE_WITH_NOTION_CREDENTIAL_ID",
+          "name": "Notion API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Drive Notification": {
+      "main": [
+        [
+          {
+            "node": "Filter Only File Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Only File Changes": {
+      "main": [
+        [
+          {
+            "node": "Parse Filename Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Filename Metadata": {
+      "main": [
+        [
+          {
+            "node": "Get File Details from Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File Details from Drive": {
+      "main": [
+        [
+          {
+            "node": "Create Notion Database Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "staticData": null
+}
