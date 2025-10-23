@@ -1,0 +1,30 @@
+{
+  "name": "tulio-day-planner-agent",
+  "description": "Synchronises Tulio day planner tasks into Notion with automatic database provisioning.",
+  "configuration": {
+    "env": [
+      "NOTION_TOKEN",
+      "NOTION_PLANNER_DATABASE_ID",
+      "NOTION_MIRROR_DATABASE_ID",
+      "NOTION_PROVISIONING_INSTRUCTIONS",
+      "NOTION_REUSE_EXISTING_DATABASES",
+      "NOTION_CREATE_DATABASES",
+      "COMPOSIO_API_KEY",
+      "COMPOSIO_ASSISTANT"
+    ],
+    "notion": {
+      "provisioning": {
+        "instructions_var": "NOTION_PROVISIONING_INSTRUCTIONS",
+        "reuse_existing_flag": "NOTION_REUSE_EXISTING_DATABASES",
+        "create_missing_flag": "NOTION_CREATE_DATABASES"
+      },
+      "database_ids": {
+        "planner": "NOTION_PLANNER_DATABASE_ID",
+        "mirror": "NOTION_MIRROR_DATABASE_ID"
+      },
+      "composio": {
+        "assistant_slug": "COMPOSIO_ASSISTANT"
+      }
+    }
+  }
+}
