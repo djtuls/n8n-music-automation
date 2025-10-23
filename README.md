@@ -26,6 +26,7 @@ facade that wires everything together.
 
 ## Quick start
 
+For a detailed walkthrough of the provisioning and integration flow, see [docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md).
 1. Copy `example.env` to `.env` (or configure the variables inside your
    orchestrator) and fill in:
    - `NOTION_TOKEN` – Integration token for the Notion workspace.
