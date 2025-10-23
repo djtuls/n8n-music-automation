@@ -12,6 +12,10 @@
       "COMPOSIO_API_KEY",
       "COMPOSIO_ASSISTANT"
     ],
+    "vault": {
+      "prefix": "vault://",
+      "description": "Set any environment variable to a vault://path#field reference to resolve it with the orchestrator's vault."
+    },
     "notion": {
       "provisioning": {
         "instructions_var": "NOTION_PROVISIONING_INSTRUCTIONS",

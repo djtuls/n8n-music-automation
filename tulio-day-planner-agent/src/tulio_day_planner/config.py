@@ -6,6 +6,192 @@ import json
 from typing import Any, Dict, Mapping, Optional
 
 
+def _extract_secret_value(result: Any, key: Optional[str]) -> Optional[str]:
+    """Attempt to extract a textual secret from a vault response."""
+
+    if result is None:
+        return None
+
+    if isinstance(result, str):
+        return result
+
+    if key and isinstance(result, Mapping):
+        candidate = result.get(key)
+        if isinstance(candidate, str):
+            return candidate
+
+    attribute_candidates = [key, "value", "secret", "secret_value", "data", "content"]
+    for attr in attribute_candidates:
+        if not attr:
+            continue
+        if isinstance(result, Mapping):
+            candidate = result.get(attr)
+        else:
+            candidate = getattr(result, attr, None)
+        if isinstance(candidate, str):
+            return candidate
+        if isinstance(candidate, Mapping):
+            nested = _extract_secret_value(candidate, None)
+            if isinstance(nested, str):
+                return nested
+
+    return None
+
+
+def _fetch_secret_from_source(
+    source: object, reference: str, path: str, key: Optional[str]
+) -> Optional[str]:
+    """Best-effort secret resolution against a single source object."""
+
+    if source is None:
+        return None
+
+    lookup_candidates = [candidate for candidate in {reference, path} if candidate]
+
+    if isinstance(source, Mapping):
+        for candidate in lookup_candidates:
+            candidate_value = source.get(candidate)
+            secret = _extract_secret_value(candidate_value, key)
+            if secret:
+                return secret
+        if path and "/" in path:
+            current: Any = source
+            for part in path.split("/"):
+                if not isinstance(current, Mapping):
+                    break
+                current = current.get(part)
+            secret = _extract_secret_value(current, key)
+            if secret:
+                return secret
+
+    method_names = (
+        "get_secret",
+        "fetch_secret",
+        "read_secret",
+        "resolve_secret",
+        "load_secret",
+        "secret",
+        "get",
+        "read",
+        "lookup",
+        "retrieve_secret",
+    )
+
+    for method_name in method_names:
+        handler = getattr(source, method_name, None)
+        if not callable(handler):
+            continue
+        for candidate in lookup_candidates or [None]:
+            call_args = ()
+            if candidate is not None:
+                call_args = (candidate,)
+            try:
+                result = handler(*call_args)
+            except TypeError:
+                kwarg_candidates = (
+                    {"name": candidate} if candidate is not None else {},
+                    {"key": candidate} if candidate is not None else {},
+                    {"path": candidate} if candidate is not None else {},
+                    {"secret": candidate} if candidate is not None else {},
+                )
+                for kwargs in kwarg_candidates:
+                    if not kwargs:
+                        continue
+                    try:
+                        result = handler(**kwargs)
+                    except TypeError:
+                        continue
+                    else:
+                        break
+                else:
+                    continue
+            secret = _extract_secret_value(result, key)
+            if secret:
+                return secret
+
+    for candidate in lookup_candidates:
+        try:
+            result = source[candidate]  # type: ignore[index]
+        except (TypeError, KeyError, AttributeError):
+            continue
+        secret = _extract_secret_value(result, key)
+        if secret:
+            return secret
+
+    return None
+
+
+def _resolve_vault_reference(
+    value: Optional[str],
+    orchestrator: Optional[object],
+    *,
+    env_name: str,
+) -> Optional[str]:
+    """Resolve ``vault://`` references through the provided orchestrator."""
+
+    if not value or not value.startswith("vault://"):
+        return value
+
+    if orchestrator is None:
+        raise RuntimeError(
+            f"{env_name} references an orchestrator vault secret but no orchestrator was supplied."
+        )
+
+    reference = value[len("vault://") :]
+    reference = reference.strip()
+    if not reference:
+        raise RuntimeError(f"Vault reference for {env_name} is empty")
+
+    path, _, key = reference.partition("#")
+    if not key and ":" in path:
+        path, key = path.split(":", 1)
+    path = path.strip()
+    key = key.strip() if key else None
+
+    sources = []
+    vault = getattr(orchestrator, "vault", None)
+    if vault is not None:
+        sources.append(vault)
+    sources.append(orchestrator)
+
+    for source in sources:
+        secret = _fetch_secret_from_source(source, reference, path, key)
+        if secret:
+            return secret.strip()
+
+    raise RuntimeError(f"Unable to resolve vault secret '{reference}' for {env_name}")
+
+
+def _env_or_vault_value(
+    env: Mapping[str, str],
+    name: str,
+    *,
+    orchestrator: Optional[object],
+    required: bool = False,
+) -> Optional[str]:
+    """Fetch an environment value, resolving orchestrator vault placeholders."""
+
+    value = _optional_env_value(env.get(name))
+    if value is None:
+        placeholder_keys = [
+            f"{name}_VAULT",
+            f"{name}_VAULT_PATH",
+            f"{name}_VAULT_SECRET",
+            f"{name}_SECRET",
+        ]
+        for key in placeholder_keys:
+            value = _optional_env_value(env.get(key))
+            if value:
+                break
+
+    value = _resolve_vault_reference(value, orchestrator, env_name=name)
+
+    if required and not value:
+        raise KeyError(name)
+
+    return value
+
+
 def _optional_env_value(raw: Optional[str]) -> Optional[str]:
     """Return a stripped environment value or ``None`` when empty."""
 
@@ -73,8 +259,15 @@ class NotionConfig:
     composio_assistant_slug: Optional[str] = None
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str]) -> "NotionConfig":
-        """Build a configuration instance from environment variables."""
+    def from_env(
+        cls, env: Mapping[str, str], *, orchestrator: Optional[object] = None
+    ) -> "NotionConfig":
+        """Build a configuration instance from environment variables.
+
+        When values include ``vault://`` placeholders, the optional
+        ``orchestrator`` is queried (and its ``vault`` attribute, when present)
+        to resolve those secrets before creating the configuration object.
+        """
 
         def _flag(name: str, default: bool) -> bool:
             value = env.get(name)
@@ -82,20 +275,31 @@ class NotionConfig:
                 return default
             return value.strip().lower() in {"1", "true", "yes", "on"}
 
-        provisioning = NotionProvisioningInstructions.from_mapping(
-            env.get("NOTION_PROVISIONING_INSTRUCTIONS")
+        provisioning_raw = _env_or_vault_value(
+            env, "NOTION_PROVISIONING_INSTRUCTIONS", orchestrator=orchestrator
         )
+        provisioning = NotionProvisioningInstructions.from_mapping(provisioning_raw)
 
         composio_assistant = (
-            _optional_env_value(env.get("COMPOSIO_ASSISTANT"))
-            or _optional_env_value(env.get("COMPOSIO_ASSISTANT_SLUG"))
-            or _optional_env_value(env.get("COMPOSIO_ASSISTANT_ID"))
+            _env_or_vault_value(env, "COMPOSIO_ASSISTANT", orchestrator=orchestrator)
+            or _env_or_vault_value(
+                env, "COMPOSIO_ASSISTANT_SLUG", orchestrator=orchestrator
+            )
+            or _env_or_vault_value(
+                env, "COMPOSIO_ASSISTANT_ID", orchestrator=orchestrator
+            )
         )
 
         return cls(
-            api_token=env["NOTION_TOKEN"],
-            planner_database_id=env.get("NOTION_PLANNER_DATABASE_ID"),
-            mirror_database_id=env.get("NOTION_MIRROR_DATABASE_ID"),
+            api_token=_env_or_vault_value(
+                env, "NOTION_TOKEN", orchestrator=orchestrator, required=True
+            ),
+            planner_database_id=_env_or_vault_value(
+                env, "NOTION_PLANNER_DATABASE_ID", orchestrator=orchestrator
+            ),
+            mirror_database_id=_env_or_vault_value(
+                env, "NOTION_MIRROR_DATABASE_ID", orchestrator=orchestrator
+            ),
             provisioning=provisioning,
             reuse_existing_databases=_flag("NOTION_REUSE_EXISTING_DATABASES", True),
             create_databases_when_missing=_flag("NOTION_CREATE_DATABASES", True),

@@ -12,7 +12,9 @@ HTTP API.
 
 ### Notion provisioning flow
 
-1. Configure the Notion integration token in `NOTION_TOKEN`.
+1. Configure the Notion integration token in `NOTION_TOKEN`. When the value is
+   stored in an orchestrator-managed vault you can reference it with a
+   `vault://` URI (see below).
 2. Supply database identifiers (`NOTION_PLANNER_DATABASE_ID` and
    `NOTION_MIRROR_DATABASE_ID`) if you already created them.
 3. When identifiers are missing, provide a JSON payload in
@@ -51,6 +53,23 @@ instance into `NotionClient` and set `COMPOSIO_ASSISTANT` (or
 assistant that exposes the `discover_databases`/`create_databases` actions before
 provisioning Notion. This lets existing orchestration setups continue to manage
 connectors without manual wiring inside the planner agent.
+
+#### Loading secrets from an orchestrator vault
+
+Set environment variables to a `vault://path#field` (or `vault://path:field`)
+placeholder to load their values from an orchestrator-managed vault. The
+configuration loader will ask the orchestrator (or its `vault` attribute) for
+the referenced secret before provisioning Notion. Example:
+
+```bash
+NOTION_TOKEN=vault://notion/integration#token
+NOTION_PROVISIONING_INSTRUCTIONS=vault://tulio/planner#schema
+```
+
+When secrets are resolved through the vault you must call
+`NotionConfig.from_env(os.environ, orchestrator=my_orchestrator)` so the loader
+has access to the vault APIs. If no orchestrator is provided the agent will
+raise an error as soon as it encounters a `vault://` reference.
 
 ### Sync pipeline
 
