@@ -1,0 +1,39 @@
+{
+  "name": "Tulio Day Planner",
+  "description": "Synchronizes Gmail, Google Calendar, and Notion to build a daily executive planner for Tulio Ferro.",
+  "entrypoint": "python -m tulio_day_planner.agent",
+  "memory": {
+    "type": "vector"
+  },
+  "tools": [
+    {
+      "name": "sync_day_planner",
+      "description": "Run the full Gmail/Calendar/Notion synchronization pipeline for the current day.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ],
+  "environment": {
+    "GMAIL_CLIENT_ID": "${GMAIL_CLIENT_ID}",
+    "GMAIL_CLIENT_SECRET": "${GMAIL_CLIENT_SECRET}",
+    "GMAIL_REFRESH_TOKEN": "${GMAIL_REFRESH_TOKEN}",
+    "GMAIL_SCOPES": "https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.metadata",
+    "CALENDAR_SCOPES": "https://www.googleapis.com/auth/calendar.readonly",
+    "CALENDAR_ID": "${CALENDAR_ID|primary}",
+    "NOTION_TOKEN": "${NOTION_TOKEN}",
+    "NOTION_DB_PLANNER": "a1979e9c36e64398883d802ecb850d19",
+    "NOTION_DB_MIRROR": "a6e1faea83564452990da1aeed105179",
+    "NOTION_DB_LOG": "b7636cbe881d4308bcd84bb9318379e0",
+    "SYNC_RANGE_DAYS": "2",
+    "SUMMARY_CHANNEL": "notion"
+  },
+  "permissions": [
+    "gmail.read",
+    "gmail.modify",
+    "calendar.read",
+    "notion.write"
+  ]
+}
