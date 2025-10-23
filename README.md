@@ -71,6 +71,28 @@ When secrets are resolved through the vault you must call
 has access to the vault APIs. If no orchestrator is provided the agent will
 raise an error as soon as it encounters a `vault://` reference.
 
+### Building the agent
+
+Use `TulioDayPlannerAgent` for an end-to-end setup that understands
+orchestrator-managed vault secrets, optional Composio assistants, and writes
+planner data into Notion:
+
+```python
+from tulio_day_planner import TulioDayPlannerAgent
+
+
+agent = TulioDayPlannerAgent.from_environment(orchestrator=my_orchestrator)
+agent.sync(
+    planner_entries=[{"properties": {...}}],
+    mirror_entries=[{"properties": {...}}],
+)
+```
+
+Entries must provide Notion-ready `properties` payloads. Planner entries may
+also include `id`/`page_id` when updating existing pages, plus optional
+`children`, `icon`, and `cover` values. Mirror entries append new rows to the
+mirror database using the same structure.
+
 ### Sync pipeline
 
 `PlannerSyncPipeline` always ensures the planner and mirror database identifiers

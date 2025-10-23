@@ -1,7 +1,7 @@
 """Client helpers for provisioning Notion databases used by the planner."""
 from __future__ import annotations
 
-from typing import Dict, Iterable, Mapping, Optional
+from typing import Dict, Iterable, Mapping, Optional, Sequence
 
 import requests
 
@@ -220,6 +220,70 @@ class NotionClient:
             "Notion-Version": self.notion_version,
             "Content-Type": "application/json",
         }
+
+    # Page helpers ------------------------------------------------------
+
+    def create_page(
+        self,
+        database_id: str,
+        *,
+        properties: Mapping[str, object],
+        children: Optional[Sequence[Mapping[str, object]]] = None,
+        icon: Optional[Mapping[str, object]] = None,
+        cover: Optional[Mapping[str, object]] = None,
+    ) -> Mapping[str, object]:
+        """Create a Notion page within ``database_id`` and return the API response."""
+
+        payload: Dict[str, object] = {
+            "parent": {"database_id": database_id},
+            "properties": dict(properties),
+        }
+
+        if children:
+            payload["children"] = [dict(child) for child in children]
+        if icon:
+            payload["icon"] = dict(icon)
+        if cover:
+            payload["cover"] = dict(cover)
+
+        response = self.session.post(
+            "https://api.notion.com/v1/pages",
+            headers=self._headers(),
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_page(
+        self,
+        page_id: str,
+        *,
+        properties: Optional[Mapping[str, object]] = None,
+        archived: Optional[bool] = None,
+        icon: Optional[Mapping[str, object]] = None,
+        cover: Optional[Mapping[str, object]] = None,
+    ) -> Mapping[str, object]:
+        """Update an existing Notion page and return the API response."""
+
+        payload: Dict[str, object] = {}
+        if properties:
+            payload["properties"] = dict(properties)
+        if archived is not None:
+            payload["archived"] = bool(archived)
+        if icon:
+            payload["icon"] = dict(icon)
+        if cover:
+            payload["cover"] = dict(cover)
+
+        response = self.session.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=self._headers(),
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
 
     @staticmethod
     def _extract_title(value: Optional[Iterable[Mapping[str, object]]]) -> str:
