@@ -1,0 +1,11 @@
+{
+  "name": "tulio-day-planner-agent",
+  "description": "Aggregates Gmail, Calendar, Drive, Todoist and WhatsApp data via Composio MCP tools for Tulio's planner.",
+  "env": {
+    "DAY_PLANNER_DRIVE_FOLDER_IDS": "drive-folder-123,drive-folder-456",
+    "DAY_PLANNER_TODOIST_PROJECT_FILTERS": "today,(p1 & overdue)",
+    "DAY_PLANNER_WHATSAPP_CHANNEL_IDS": "tulio-team,tulio-family",
+    "DAY_PLANNER_GMAIL_LABEL_FILTER": "INBOX",
+    "DAY_PLANNER_CALENDAR_IDS": "primary,team-calendar@group.calendar.google.com"
+  }
+}
