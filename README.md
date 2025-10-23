@@ -1,106 +1,76 @@
-# n8n-music-automation
+# Tulio Day Planner Agent
 
-Automated music file processing workflow: Google Drive → n8n → Notion. Extracts metadata,
-transcribes lyrics, detects profanity, translates, and searches charts.
+An orchestrator-friendly agent that provisions Notion databases on demand and
+synchronises Tulio day planner data. The codebase bundles configuration helpers,
+a Notion client with automatic discovery/creation logic, and a ready-to-run
+facade that wires everything together.
 
-## Tulio day planner agent
+## Key capabilities
 
-The `tulio-day-planner-agent` directory contains an experimental agent that syncs day
-planner tasks into Notion. The agent can now provision the Notion databases it
-needs automatically by talking to Composio's MCP or by falling back to the Notion
-HTTP API.
+- **Automatic provisioning** – Discover or create planner and mirror databases
+  when identifiers are absent.
+- **Composio integration** – Optionally invoke a Composio MCP assistant directly
+  or via an orchestrator hook before falling back to raw Notion HTTP calls.
+- **Vault-backed secrets** – Resolve any `vault://` environment placeholders with
+  your orchestrator's vault before constructing the client.
+- **Turnkey agent** – Use `TulioDayPlannerAgent` for a batteries-included setup
+  that handles provisioning, caching, and the default Notion writers.
 
-### Notion provisioning flow
+## Repository layout
 
-1. Configure the Notion integration token in `NOTION_TOKEN`. When the value is
-   stored in an orchestrator-managed vault you can reference it with a
-   `vault://` URI (see below).
-2. Supply database identifiers (`NOTION_PLANNER_DATABASE_ID` and
-   `NOTION_MIRROR_DATABASE_ID`) if you already created them.
-3. When identifiers are missing, provide a JSON payload in
-   `NOTION_PROVISIONING_INSTRUCTIONS` that describes the workspace and target
-   schema. Example:
+- `tulio-day-planner-agent/src/tulio_day_planner/` – Agent implementation,
+  configuration utilities, and Notion client wrappers.
+- `example.env` – Template for environment variables understood by the agent.
+- `agent_builder.json` – Declarative description for platforms that spin up the
+  agent automatically.
 
-   ```json
-   {
-     "workspace": "workspace-id-or-name",
-     "schema_name": "Tulio Day Planner",
-     "schema": {
-       "Name": {"title": {}},
-       "Status": {"select": {"options": [{"name": "To Do"}, {"name": "Done"}]}}
-     }
-   }
+## Quick start
+
+1. Copy `example.env` to `.env` (or configure the variables inside your
+   orchestrator) and fill in:
+   - `NOTION_TOKEN` – Integration token for the Notion workspace.
+   - Optional planner/mirror database identifiers if they already exist.
+   - `NOTION_PROVISIONING_INSTRUCTIONS` – JSON instructions that describe the
+     workspace, schema name, and property definitions when IDs are missing.
+   - Provisioning flags and optional Composio settings as needed.
+2. Install the package in editable mode so your runtime can import it:
+
+   ```bash
+   pip install -e tulio-day-planner-agent
    ```
 
-4. Toggle whether existing databases should be reused with
-   `NOTION_REUSE_EXISTING_DATABASES=true|false` (defaults to `true`).
-5. Toggle automatic database creation via `NOTION_CREATE_DATABASES=true|false`
-   (defaults to `true`).
-6. Optionally attach a Composio MCP client: when present, the agent will call
-   `discover_databases` and `create_databases`. Otherwise the Notion REST API is
-   used directly. If you rely on a Composio orchestrator to manage assistants,
-   set `COMPOSIO_ASSISTANT` (or `COMPOSIO_ASSISTANT_SLUG`) so the agent can look
-   up the assistant automatically.
+3. Instantiate and run the agent from Python:
 
-The resulting database identifiers are cached by the agent so subsequent syncs
-reuse the same Notion databases without another discovery round.
+   ```python
+   from tulio_day_planner import TulioDayPlannerAgent
 
-#### Using a Composio orchestrator
+   agent = TulioDayPlannerAgent.from_environment(orchestrator=my_orchestrator)
+   agent.sync(
+       planner_entries=[{"properties": {...}}],
+       mirror_entries=[{"properties": {...}}],
+   )
+   ```
 
-When the Composio assistant is managed by an orchestrator, pass the orchestrator
-instance into `NotionClient` and set `COMPOSIO_ASSISTANT` (or
-`COMPOSIO_ASSISTANT_SLUG`). The client will query the orchestrator for an
-assistant that exposes the `discover_databases`/`create_databases` actions before
-provisioning Notion. This lets existing orchestration setups continue to manage
-connectors without manual wiring inside the planner agent.
+The `sync` call automatically ensures the target databases exist, writes planner
+pages (creating or updating as required), appends mirror rows, and returns the
+resolved database identifiers for reuse.
 
-#### Loading secrets from an orchestrator vault
+## Provisioning options
 
-Set environment variables to a `vault://path#field` (or `vault://path:field`)
-placeholder to load their values from an orchestrator-managed vault. The
-configuration loader will ask the orchestrator (or its `vault` attribute) for
-the referenced secret before provisioning Notion. Example:
-
-```bash
-NOTION_TOKEN=vault://notion/integration#token
-NOTION_PROVISIONING_INSTRUCTIONS=vault://tulio/planner#schema
-```
-
-When secrets are resolved through the vault you must call
-`NotionConfig.from_env(os.environ, orchestrator=my_orchestrator)` so the loader
-has access to the vault APIs. If no orchestrator is provided the agent will
-raise an error as soon as it encounters a `vault://` reference.
-
-### Building the agent
-
-Use `TulioDayPlannerAgent` for an end-to-end setup that understands
-orchestrator-managed vault secrets, optional Composio assistants, and writes
-planner data into Notion:
-
-```python
-from tulio_day_planner import TulioDayPlannerAgent
-
-
-agent = TulioDayPlannerAgent.from_environment(orchestrator=my_orchestrator)
-agent.sync(
-    planner_entries=[{"properties": {...}}],
-    mirror_entries=[{"properties": {...}}],
-)
-```
-
-Entries must provide Notion-ready `properties` payloads. Planner entries may
-also include `id`/`page_id` when updating existing pages, plus optional
-`children`, `icon`, and `cover` values. Mirror entries append new rows to the
-mirror database using the same structure.
-
-### Sync pipeline
-
-`PlannerSyncPipeline` always ensures the planner and mirror database identifiers
-are resolved before attempting to write data. Writers are passed the resolved IDs
-so they can create planner pages and mirror entries.
+- `NOTION_REUSE_EXISTING_DATABASES` – Attempt discovery before creating
+  databases (defaults to `true`).
+- `NOTION_CREATE_DATABASES` – Allow automatic creation when databases are
+  missing (defaults to `true`).
+- `COMPOSIO_ASSISTANT` / `_SLUG` – Identify the Composio assistant managed by
+  your orchestrator.
+- Any variable may point to `vault://path#field`; pass the orchestrator instance
+  into `NotionConfig.from_env` or `TulioDayPlannerAgent.from_environment` so the
+  loader can resolve secrets from the vault before use.
 
 ## Development
 
-Update `example.env` with your configuration choices and copy it to `.env` to run
-locally. See `agent_builder.json` for a full agent definition that includes the
-new provisioning flags.
+Run a quick syntax check before committing changes:
+
+```bash
+python -m compileall tulio-day-planner-agent/src/tulio_day_planner
+```
